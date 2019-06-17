@@ -2,7 +2,6 @@ extern crate clap;
 
 use clap::{App, SubCommand, Arg};
 use std::process::{Command, Output};
-use std::io::Error;
 use std::io::Write;
 
 fn main() {
@@ -27,7 +26,7 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("search") {
         let query = matches.value_of("QUERY").expect("Query string required for search");
-        println!("Search for: {}", query);
+        search(query)
     }
 }
 
@@ -36,16 +35,20 @@ fn ensure_requirements() {
         check_for_requirement("snap"),
         check_for_requirement("flatpak")
     );
-    println!("{:?}", all_available);
+
+    // TODO: Add this to debug logging
+    //    println!("{:?}", all_available);
 
     match all_available {
         (Ok(_), Ok(_)) => return,
         (snap, flatpak) => {
             if snap.is_err() {
-                writeln!(std::io::stderr(), "{}", snap.err());
+                writeln!(std::io::stderr(), "{}", snap.err().unwrap())
+                    .unwrap();
             }
             if flatpak.is_err() {
-                writeln!(std::io::stderr(), "{}", flatpak.err());
+                writeln!(std::io::stderr(), "{}", flatpak.err().unwrap())
+                    .unwrap();
             }
 
             std::process::exit(1);
@@ -53,7 +56,7 @@ fn ensure_requirements() {
     }
 }
 
-fn check_for_requirement(required_command: &str) -> Result<&Output, String>{
+fn check_for_requirement(required_command: &str) -> Result<Output, String>{
     let result = Command::new("which")
         .arg(required_command)
         .output();
@@ -63,14 +66,28 @@ fn check_for_requirement(required_command: &str) -> Result<&Output, String>{
             if output.stdout.len() == 0 {
                 return Err(format!("requirement not found: {}", required_command));
             }
-            return Ok(output);
+            return Ok(output.clone());
         },
-        Err(ioErr ) => {
+        Err(_) => {
             return Err("Error Running `which`".to_string());
         }
     }
 }
 
 fn search(name: &str) {
+    let snap_result = Command::new("snap")
+        .arg("search")
+        .arg(name)
+        .output();
 
+    match snap_result {
+        Ok(snap_output) => {
+            let stdout =  String::from_utf8_lossy(&snap_output.stdout);
+            println!("{}", stdout);
+        },
+        Err(snapErr) => {
+            writeln!(std::io::stderr(), "{}", snapErr)
+                .unwrap();
+        }
+    }
 }
