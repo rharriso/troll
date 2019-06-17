@@ -26,7 +26,10 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("search") {
         let query = matches.value_of("QUERY").expect("Query string required for search");
-        search(query)
+        match search(query) {
+            Ok(results) => println!("{:?}", results),
+            Err(error) => writeln!(std::io::stderr(), "{}", error).unwrap()
+        }
     }
 }
 
@@ -74,7 +77,30 @@ fn check_for_requirement(required_command: &str) -> Result<Output, String>{
     }
 }
 
-fn search(name: &str) {
+#[derive(Debug)]
+enum Distributor {
+    FLATPAK,
+    SNAP,
+}
+
+#[derive(Debug)]
+struct SearchResult {
+    name: String,
+    version: String,
+    publisher: String,
+    source: Distributor,
+}
+
+fn search(name: &str) -> Result<Vec<SearchResult>, String> {
+    match search_snap(name) {
+        Ok(snap_output) => {
+            return Ok(vec![])
+        },
+        Err(error)=> return Err(error)
+    }
+}
+
+fn search_snap(name: &str) -> Result<Vec<String>, String> {
     let snap_result = Command::new("snap")
         .arg("search")
         .arg(name)
@@ -82,12 +108,15 @@ fn search(name: &str) {
 
     match snap_result {
         Ok(snap_output) => {
-            let stdout =  String::from_utf8_lossy(&snap_output.stdout);
-            println!("{}", stdout);
-        },
+            let std_out_string = String::from_utf8_lossy(&snap_output.stdout)
+                .to_string();
+            let lines = std_out_string.split('\n')
+                .map(|cstr| cstr.to_string())
+                .collect();
+            return Ok(lines);
+        }
         Err(snapErr) => {
-            writeln!(std::io::stderr(), "{}", snapErr)
-                .unwrap();
+            return Err(format!("{}", snapErr))
         }
     }
 }
