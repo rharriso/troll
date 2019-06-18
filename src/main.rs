@@ -1,8 +1,10 @@
 extern crate clap;
+#[macro_use] extern crate lazy_static;
 
 use clap::{App, SubCommand, Arg};
 use std::process::{Command, Output};
 use std::io::Write;
+use regex::Regex;
 
 fn main() {
     // search sub-command
@@ -26,10 +28,11 @@ fn main() {
 
     if let Some(matches) = matches.subcommand_matches("search") {
         let query = matches.value_of("QUERY").expect("Query string required for search");
-        match search(query) {
-            Ok(results) => println!("{:?}", results),
-            Err(error) => writeln!(std::io::stderr(), "{}", error).unwrap()
-        }
+        search(query);
+//        match search(query) {
+//            Ok(results) => println!("{:?}", results),
+//            Err(error) => writeln!(std::io::stderr(), "{}", error).unwrap()
+//        }
     }
 }
 
@@ -91,32 +94,65 @@ struct SearchResult {
     source: Distributor,
 }
 
-fn search(name: &str) -> Result<Vec<SearchResult>, String> {
-    match search_snap(name) {
-        Ok(snap_output) => {
-            return Ok(vec![])
-        },
-        Err(error)=> return Err(error)
+//fn search(name: &str) -> Result<Vec<SearchResult>, String> {
+fn search(name: &str)  {
+    for result in search_snap(name) {
+        match result {
+            Ok(snap_result) => {
+                println!("name: {}", snap_result.name);
+                println!("version: {}", snap_result.version);
+                println!("publisher: {}", snap_result.publisher);
+                println!("source: {:?}", snap_result.source);
+            },
+            Err(error)=> {
+                writeln!(std::io::stderr(), "{}", error);
+            }
+        }
     }
 }
 
-fn search_snap(name: &str) -> Result<Vec<String>, String> {
+fn search_snap(name: &str) -> Vec<Result<SearchResult, String>> {
     let snap_result = Command::new("snap")
         .arg("search")
         .arg(name)
-        .output();
+        .output().unwrap();
 
-    match snap_result {
-        Ok(snap_output) => {
-            let std_out_string = String::from_utf8_lossy(&snap_output.stdout)
-                .to_string();
-            let lines = std_out_string.split('\n')
-                .map(|cstr| cstr.to_string())
-                .collect();
-            return Ok(lines);
-        }
-        Err(snapErr) => {
-            return Err(format!("{}", snapErr))
-        }
+    let std_out_string = String::from_utf8_lossy(&snap_result.stdout);
+
+    return std_out_string.split('\n')
+        .map(snap_line_to_result)
+        .collect();
+}
+
+fn snap_line_to_result(snap_line: &str) -> Result<SearchResult, String> {
+    lazy_static! {
+        static ref SNAP_LINE_REGEX: Regex = Regex::new(r"^(\w+)\s+([\w\.]+)\s+([^\s\t]+)\s+([^\s\t]+)\s(.+)$").unwrap();
     }
+
+    let capture_group = match SNAP_LINE_REGEX.captures(snap_line) {
+        Some(_capture_group) => _capture_group,
+        _ => return Err("Can't parse snap line".to_string())
+    };
+
+    let name = match capture_group.get(1) {
+        Some(name_capture) => name_capture.as_str().to_string(),
+        _ => return Err("Can't parse snap line".to_string())
+    };
+
+    let version = match capture_group.get(2) {
+        Some(version_capture) => version_capture.as_str().to_string(),
+        _ => return Err("Can't parse snap line".to_string())
+    };
+
+    let publisher = match capture_group.get(3) {
+        Some(publisher_capture) => publisher_capture.as_str().to_string(),
+        _ => return Err("Can't parse snap line".to_string())
+    };
+
+    Ok(SearchResult{
+        name,
+        publisher,
+        version,
+        source: Distributor::SNAP
+    })
 }
