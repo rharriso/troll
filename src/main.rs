@@ -1,10 +1,13 @@
-extern crate clap;
 #[macro_use] extern crate lazy_static;
+#[macro_use] extern crate log;
+#[macro_use] extern crate prettytable;
+extern crate clap;
 
 use clap::{App, SubCommand, Arg};
 use std::process::{Command, Output};
 use std::io::Write;
 use regex::Regex;
+use prettytable::{Table, format};
 
 fn main() {
     // search sub-command
@@ -42,9 +45,6 @@ fn ensure_requirements() {
         check_for_requirement("flatpak")
     );
 
-    // TODO: Add this to debug logging
-    //    println!("{:?}", all_available);
-
     match all_available {
         (Ok(_), Ok(_)) => return,
         (snap, flatpak) => {
@@ -80,13 +80,19 @@ fn check_for_requirement(required_command: &str) -> Result<Output, String>{
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 enum Distributor {
     FLATPAK,
     SNAP,
 }
 
-#[derive(Debug)]
+impl ToString for Distributor {
+    fn to_string(&self) -> String {
+        format!("{:?}", self)
+    }
+}
+
+#[derive(Clone, Debug)]
 struct SearchResult {
     name: String,
     version: String,
@@ -94,24 +100,36 @@ struct SearchResult {
     source: Distributor,
 }
 
-//fn search(name: &str) -> Result<Vec<SearchResult>, String> {
+// TODO: Move search into own ... module?
 fn search(name: &str)  {
-    for result in search_snap(name) {
-        match result {
-            Ok(snap_result) => {
-                println!("name: {}", snap_result.name);
-                println!("version: {}", snap_result.version);
-                println!("publisher: {}", snap_result.publisher);
-                println!("source: {:?}", snap_result.source);
-            },
-            Err(error)=> {
-                writeln!(std::io::stderr(), "{}", error);
-            }
-        }
-    }
+    // filter results, logging errors
+    let snap_results = search_snap(name);
+
+    let results = snap_results;
+
+    /*
+     *print results table
+     */
+    let mut table = Table::new();
+    let format = format::FormatBuilder::new()
+        .borders(' ')
+        .separators(&[format::LinePosition::Top],
+                    format::LineSeparator::new(' ', ' ', ' ', ' '))
+        .padding(0, 5)
+        .build();
+    table.set_format(format);
+
+    // add header
+    table.add_row(row!["SOURCE", "NAME", "VERSION", "PUBLISHER"]);
+    // add result rows
+    results.iter().for_each(|result| {
+        table.add_row(row![result.source, result.name, result.version, result.publisher]);
+    });
+
+    print!("{}", table.to_string());
 }
 
-fn search_snap(name: &str) -> Vec<Result<SearchResult, String>> {
+fn search_snap(name: &str) -> Vec<SearchResult> {
     let snap_result = Command::new("snap")
         .arg("search")
         .arg(name)
@@ -119,11 +137,32 @@ fn search_snap(name: &str) -> Vec<Result<SearchResult, String>> {
 
     let std_out_string = String::from_utf8_lossy(&snap_result.stdout);
 
-    return std_out_string.split('\n')
+    let unfiltered_results = std_out_string.split('\n')
         .map(snap_line_to_result)
         .collect();
+
+    filter_search_results(unfiltered_results)
 }
 
+///
+/// Return the OK results, and log the error-ing lines out
+///
+fn filter_search_results(results: Vec<Result<SearchResult, String>>) -> Vec<SearchResult> {
+    results.iter().fold(vec![], |ok_results, result| {
+        match result {
+            Ok(ok_result) => [&ok_results[..], &vec![ok_result.clone()][..]].concat(),
+            Err(error) => {
+                error!("{}", error);
+                ok_results
+            }
+        }
+    })
+}
+
+///
+/// Vector of results, either a struct representing the result,
+/// or an error wrapping a line that failed to parse
+///
 fn snap_line_to_result(snap_line: &str) -> Result<SearchResult, String> {
     lazy_static! {
         static ref SNAP_LINE_REGEX: Regex = Regex::new(r"^(\w+)\s+([\w\.]+)\s+([^\s\t]+)\s+([^\s\t]+)\s(.+)$").unwrap();
@@ -131,22 +170,22 @@ fn snap_line_to_result(snap_line: &str) -> Result<SearchResult, String> {
 
     let capture_group = match SNAP_LINE_REGEX.captures(snap_line) {
         Some(_capture_group) => _capture_group,
-        _ => return Err("Can't parse snap line".to_string())
+        _ => return Err(format!("Couldn't parse: {}", snap_line.to_string()))
     };
 
     let name = match capture_group.get(1) {
         Some(name_capture) => name_capture.as_str().to_string(),
-        _ => return Err("Can't parse snap line".to_string())
+        _ => return Err(format!("Couldn't get name from line:\n {}", snap_line.to_string()))
     };
 
     let version = match capture_group.get(2) {
         Some(version_capture) => version_capture.as_str().to_string(),
-        _ => return Err("Can't parse snap line".to_string())
+        _ => return Err(format!("Couldn't get version from line:\n {}", snap_line.to_string()))
     };
 
     let publisher = match capture_group.get(3) {
         Some(publisher_capture) => publisher_capture.as_str().to_string(),
-        _ => return Err("Can't parse snap line".to_string())
+        _ => return Err(format!("Couldn't get publisher from line:\n {}", snap_line.to_string()))
     };
 
     Ok(SearchResult{
