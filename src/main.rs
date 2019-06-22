@@ -8,6 +8,7 @@ use std::process::{Command, Output};
 use std::io::Write;
 use regex::Regex;
 use prettytable::{Table, format};
+use levenshtein::levenshtein;
 
 fn main() {
     // search sub-command
@@ -98,6 +99,9 @@ struct SearchResult {
     version: String,
     publisher: String,
     source: Distributor,
+    description: String,
+    /// levenshtein distance from query string to result name
+    lv_distance: usize,
 }
 
 // TODO: Move search into own ... module?
@@ -105,7 +109,9 @@ fn search(name: &str)  {
     // filter results, logging errors
     let snap_results = search_snap(name);
 
-    let results = snap_results;
+    let mut results = snap_results;
+    results.sort_by(|a, b| a.lv_distance.partial_cmp(&b.lv_distance)
+        .unwrap());
 
     /*
      *print results table
@@ -120,10 +126,12 @@ fn search(name: &str)  {
     table.set_format(format);
 
     // add header
-    table.add_row(row!["SOURCE", "NAME", "VERSION", "PUBLISHER"]);
+    table.add_row(row!["SOURCE", "NAME", "VERSION", "PUBLISHER", "Lv Distance", "Description"]);
     // add result rows
     results.iter().for_each(|result| {
-        table.add_row(row![result.source, result.name, result.version, result.publisher]);
+        table.add_row(
+            row![result.source, result.name, result.version, result.publisher, result.lv_distance, result.description]
+        );
     });
 
     print!("{}", table.to_string());
@@ -137,11 +145,11 @@ fn search_snap(name: &str) -> Vec<SearchResult> {
 
     let std_out_string = String::from_utf8_lossy(&snap_result.stdout);
 
-    let unfiltered_results = std_out_string.split('\n')
-        .map(snap_line_to_result)
+    let unfiltered_results: Vec<Result<SearchResult, String>> = std_out_string.split('\n')
+        .map(|result| snap_line_to_result(result, name))
         .collect();
 
-    filter_search_results(unfiltered_results)
+    return filter_search_results(unfiltered_results);
 }
 
 ///
@@ -163,7 +171,7 @@ fn filter_search_results(results: Vec<Result<SearchResult, String>>) -> Vec<Sear
 /// Vector of results, either a struct representing the result,
 /// or an error wrapping a line that failed to parse
 ///
-fn snap_line_to_result(snap_line: &str) -> Result<SearchResult, String> {
+fn snap_line_to_result(snap_line: &str, query_name: &str) -> Result<SearchResult, String> {
     lazy_static! {
         static ref SNAP_LINE_REGEX: Regex = Regex::new(r"^(\w+)\s+([\w\.]+)\s+([^\s\t]+)\s+([^\s\t]+)\s(.+)$").unwrap();
     }
@@ -188,10 +196,17 @@ fn snap_line_to_result(snap_line: &str) -> Result<SearchResult, String> {
         _ => return Err(format!("Couldn't get publisher from line:\n {}", snap_line.to_string()))
     };
 
+    let description = match capture_group.get(4) {
+        Some(description_capture) => description_capture.as_str().to_string(),
+        _ => return Err(format!("Couldn't get description from line:\n {}", snap_line.to_string()))
+    };
+
     Ok(SearchResult{
-        name,
+        name: name.clone(),
         publisher,
         version,
-        source: Distributor::SNAP
+        source: Distributor::SNAP,
+        description,
+        lv_distance: levenshtein(query_name, &name)
     })
 }
