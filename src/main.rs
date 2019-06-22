@@ -147,6 +147,7 @@ fn search_snap(name: &str) -> Vec<SearchResult> {
 
     let unfiltered_results: Vec<Result<SearchResult, String>> = std_out_string.split('\n')
         .map(|result| snap_line_to_result(result, name))
+        .skip(1)
         .collect();
 
     return filter_search_results(unfiltered_results);
