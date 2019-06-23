@@ -7,3 +7,22 @@
 
 Tool for finding, installing, and removing universal packages easier.
 
+
+----
+
+# TODO
+
+## Install
+
+1. Search Snap and Flatpak for options.
+2. Filter/Sort by Levenshtein distance
+3. Give options
+4. confirm
+4. Install or quit
+
+## Uninstall
+
+1. Search Snap and Flatpak for options. (should be exact match), see about LV distance
+3. Give options
+4. confirm
+4. Remove or quit
