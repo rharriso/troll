@@ -12,6 +12,8 @@ Tool for finding, installing, and removing universal packages easier.
 
 # TODO
 
+## Handle flatpak sources...
+
 ## Install
 
 1. Search Snap and Flatpak for options.
